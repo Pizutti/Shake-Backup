@@ -25,7 +25,6 @@ from dropbox.exceptions import ApiError, AuthError
 TOKEN = ''
 mainPath = "/opt/data/archive/"
 
-######get a list of the files on mainPath, and remove the current day, current day file still in progress an not complete
 listOfFiles = list()
 #for (dirpath, dirnames, filenames) in os.walk("."):
 #    listOfFiles += [os.path.join(dirpath, file)[1:] for file in filenames if dirpath.startswith(".\\")]
@@ -50,8 +49,7 @@ for i  in reversed(indices):
 for lista in listOfFiles:
     print(lista)
 
-######Start the dropbox process
-dbx = dropbox.Dropbox(TOKEN)
+dbx = dropbox.Dropbox(TOKEN, timeout = 90)
 
 try:
     dbx.users_get_current_account()
@@ -62,31 +60,52 @@ except AuthError:
 print()
 print()
 
+CHUNK_SIZE = 1 * 1024 * 1024
+
 for file in listOfFiles:
     meta = None
+    file_size = os.path.getsize(file)
     try:
         meta = dbx.files_get_metadata(file.replace(mainPath, '/'))
-        print("File already exists!") 
+        print("arquivo existe!") 
     except:
-        print("File not uploaded!")
+        print("arquivo não existe!")
 #    with open("." + file, 'rb') as f:
     with open(file, 'rb') as f:
-#        if meta == None or meta.size != os.path.getsize("." + file):
+#        if meta == None or meta.size != file_size:
         if meta == None or meta.size != os.path.getsize(file):
-            try:
-                dbx.files_upload(f.read(), file.replace(mainPath, '/'), mode=WriteMode('overwrite'))
-            except ApiError as err:
-                # This checks for the specific error where a user doesn't have enough Dropbox space quota to upload this file
-                if (err.error.is_path() and
-                        err.error.get_path().error.is_insufficient_space()):
-                    sys.exit("ERROR: Cannot back up; insufficient space.")
-                elif err.user_message_text:
-                    print(err.user_message_text)
-                    sys.exit()
-                else:
-                    print(err)
-                    sys.exit()
+            print("arquivo diferente, fazendo a sincronização!")
+            print()
+            if file_size <= CHUNK_SIZE:
+                try:
+                    dbx.files_upload(f.read(), file.replace(mainPath, '/'), mode=WriteMode('overwrite'))
+    #                dbx.files_upload(f.read(), file.replace(mainPath, '/'), mode=WriteMode('overwrite'))
+                except ApiError as err:
+                    # This checks for the specific error where a user doesn't have enough Dropbox space quota to upload this file
+                    if (err.error.is_path() and
+                            err.error.get_path().error.is_insufficient_space()):
+                        sys.exit("ERROR: Cannot back up; insufficient space.")
+                    elif err.user_message_text:
+                        print(err.user_message_text)
+                        sys.exit()
+                    else:
+                        print(err)
+                        sys.exit()
+            else:
+                upload_session_start_result = dbx.files_upload_session_start(f.read(CHUNK_SIZE))
+                cursor = dropbox.files.UploadSessionCursor(session_id=upload_session_start_result.session_id,
+                                               offset=f.tell())
+                commit = dropbox.files.CommitInfo(path=file.replace(mainPath, '/'))
+                
+                while f.tell() < file_size:
+                    if ((file_size - f.tell()) <= CHUNK_SIZE):
+                        print (dbx.files_upload_session_finish(f.read(CHUNK_SIZE),
+                                            cursor, commit))
+                    else:
+                        dbx.files_upload_session_append(f.read(CHUNK_SIZE),
+                                            cursor.session_id, cursor.offset)
+                        cursor.offset = f.tell()
         else:
             print(meta.size)
-            print(os.path.getsize(file))
+            os.path.getsize(file)
             print()
