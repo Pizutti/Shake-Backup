@@ -18,6 +18,7 @@ please feel free to make any suggestion.
 
 import sys
 import os
+import numpy as np
 import dropbox
 from dropbox.files import WriteMode
 from dropbox.exceptions import ApiError, AuthError
@@ -25,18 +26,22 @@ from dropbox.exceptions import ApiError, AuthError
 TOKEN = ''
 mainPath = "/opt/data/archive/"
 
+#0 for windows 1 for linux
+os_test = 0
+
 listOfFiles = list()
-#for (dirpath, dirnames, filenames) in os.walk("."):
-#    listOfFiles += [os.path.join(dirpath, file)[1:] for file in filenames if dirpath.startswith(".\\")]
-for (dirpath, dirnames, filenames) in os.walk(mainPath):
-    listOfFiles += [os.path.join(dirpath, file) for file in filenames if dirpath.startswith(mainPath)]
+if os_test == 0:
+    for (dirpath, dirnames, filenames) in os.walk("./dados"):
+        listOfFiles += [os.path.join(dirpath, file)[1:] for file in filenames]
+if os_test == 1:
+    for (dirpath, dirnames, filenames) in os.walk(mainPath):
+        listOfFiles += [os.path.join(dirpath, file) for file in filenames if dirpath.startswith(mainPath)]
     
 days = [int(i.split('.')[-1]) for i in listOfFiles]
+days = np.array(days)
+oldMax = max(days)
 
-daysCheck = days.copy()
-for day in daysCheck:
-    if day <10:
-        daysCheck[daysCheck == day] += 366
+daysCheck = np.where((oldMax - days) > 300, days + 366, days)
 
 maxVal = max(daysCheck)
 indices = [i for i, x in enumerate(daysCheck) if x == maxVal]
@@ -44,7 +49,8 @@ indices = [i for i, x in enumerate(daysCheck) if x == maxVal]
 for i  in reversed(indices):
     del listOfFiles[i]
 
-#listOfFiles = [w.replace(mainPath, '/') for w in listOfFiles]
+if os_test == 0:
+    listOfFiles = [w.replace(mainPath, '/') for w in listOfFiles]
 
 for lista in listOfFiles:
     print(lista)
@@ -64,21 +70,24 @@ CHUNK_SIZE = 1 * 1024 * 1024
 
 for file in listOfFiles:
     meta = None
-    file_size = os.path.getsize(file)
+    os_path = file
+    if os_test == 0:
+        os_path = "." + file
+    file_size = os.path.getsize(os_path)
     try:
         meta = dbx.files_get_metadata(file.replace(mainPath, '/'))
         print("arquivo existe!") 
     except:
         print("arquivo não existe!")
 #    with open("." + file, 'rb') as f:
-    with open(file, 'rb') as f:
+    with open(os_path, 'rb') as f:
 #        if meta == None or meta.size != file_size:
-        if meta == None or meta.size != os.path.getsize(file):
+        if meta == None or meta.size != os.path.getsize(os_path):
             print("arquivo diferente, fazendo a sincronização!")
             print()
             if file_size <= CHUNK_SIZE:
                 try:
-                    dbx.files_upload(f.read(), file.replace(mainPath, '/'), mode=WriteMode('overwrite'))
+                    dbx.files_upload(f.read(), os_path.replace(mainPath, '/'), mode=WriteMode('overwrite'))
     #                dbx.files_upload(f.read(), file.replace(mainPath, '/'), mode=WriteMode('overwrite'))
                 except ApiError as err:
                     # This checks for the specific error where a user doesn't have enough Dropbox space quota to upload this file
@@ -95,7 +104,7 @@ for file in listOfFiles:
                 upload_session_start_result = dbx.files_upload_session_start(f.read(CHUNK_SIZE))
                 cursor = dropbox.files.UploadSessionCursor(session_id=upload_session_start_result.session_id,
                                                offset=f.tell())
-                commit = dropbox.files.CommitInfo(path=file.replace(mainPath, '/'))
+                commit = dropbox.files.CommitInfo(path=os_path.replace(mainPath, '/'))
                 
                 while f.tell() < file_size:
                     if ((file_size - f.tell()) <= CHUNK_SIZE):
@@ -107,5 +116,5 @@ for file in listOfFiles:
                         cursor.offset = f.tell()
         else:
             print(meta.size)
-            os.path.getsize(file)
+            os.path.getsize(os_path)
             print()
